@@ -1,0 +1,48 @@
+name: Infra AulaNube (cloud + Swarm)
+
+on:
+  push:
+    branches: [main]
+    paths: ['docker-compose.yml', 'scripts/**', '.github/workflows/infra.yml']
+  workflow_dispatch:
+
+env:
+  AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+  QUEUE_NAME: aulanube-eventos
+
+jobs:
+  # IE5: provisión de servicios cloud como código (cola SQS + cola de mensajes muertos)
+  provision-cloud:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - name: Crear colas SQS (idempotente)
+        run: |
+          DLQ_URL=$(aws sqs create-queue --queue-name "$QUEUE_NAME-dlq" --query QueueUrl --output text)
+          DLQ_ARN=$(aws sqs get-queue-attributes --queue-url "$DLQ_URL" \
+            --attribute-names QueueArn --query Attributes.QueueArn --output text)
+          jq -n --arg arn "$DLQ_ARN" \
+            '{VisibilityTimeout:"60",RedrivePolicy:({deadLetterTargetArn:$arn,maxReceiveCount:3}|tostring)}' > attrs.json
+          aws sqs create-queue --queue-name "$QUEUE_NAME" --attributes file://attrs.json
+          aws sqs list-queues --queue-name-prefix "$QUEUE_NAME"
+
+  # Despliegue del stack completo en el clúster Swarm
+  deploy-swarm:
+    needs: provision-cloud
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copiar compose y desplegar stack
+        env:
+          SSH_KEY: ${{ secrets.MANAGER_SSH_KEY }}
+          HOST: ${{ secrets.MANAGER_HOST }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+        run: |
+          install -m 600 /dev/null key.pem
+          printf '%s\n' "$SSH_KEY" > key.pem
+          scp -i key.pem -o StrictHostKeyChecking=accept-new docker-compose.yml ubuntu@"$HOST":~/
+          ssh -i key.pem ubuntu@"$HOST" \
+            "DB_PASS='$DB_PASS' docker stack deploy -c docker-compose.yml aulanube --with-registry-auth && docker stack services aulanube"
