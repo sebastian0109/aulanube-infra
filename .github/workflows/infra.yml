@@ -40,9 +40,13 @@ jobs:
         env:
           HOST: ${{ secrets.MANAGER_HOST }}
           SSH_KEY: ${{ secrets.MANAGER_SSH_KEY }}
+          DB_PASS: ${{ secrets.DB_PASS }}
         run: |
           [ -n "$HOST" ] || { echo "::error::MANAGER_HOST vacío"; exit 1; }
           [ -n "$SSH_KEY" ] || { echo "::error::MANAGER_SSH_KEY vacío"; exit 1; }
+          [ -n "$DB_PASS" ] || { echo "::error::DB_PASS vacío"; exit 1; }
+          echo "Largo de MANAGER_HOST: ${#HOST}"
+          [[ "$HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "::error::MANAGER_HOST tiene caracteres inválidos (espacios, saltos de línea, ubuntu@, etc.)"; exit 1; }
 
       - name: Copiar compose y desplegar stack
         env:
