@@ -35,6 +35,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validar secrets
+        env:
+          HOST: ${{ secrets.MANAGER_HOST }}
+          SSH_KEY: ${{ secrets.MANAGER_SSH_KEY }}
+        run: |
+          [ -n "$HOST" ] || { echo "::error::MANAGER_HOST vacío"; exit 1; }
+          [ -n "$SSH_KEY" ] || { echo "::error::MANAGER_SSH_KEY vacío"; exit 1; }
+
       - name: Copiar compose y desplegar stack
         env:
           SSH_KEY: ${{ secrets.MANAGER_SSH_KEY }}
